@@ -14,32 +14,67 @@ concurrency:
   group: "pages"
   cancel-in-progress: true
 
+env:
+  # 프로젝트가 레포 루트가 아니라면 ./app 같은 경로로 바꿔주세요.
+  WORKDIR: .         # ← 필요 시 './GraphHierarchy' 처럼 변경
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      # Node 설정
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: 'npm'
 
-      # (프로젝트가 루트가 아니라면) working-directory 수정
-      # - run: npm ci
-      #   working-directory: ./YOUR_SUBDIR
+      # 패키지 매니저 자동 감지
+      - name: Detect package manager
+        id: pm
+        working-directory: ${{ env.WORKDIR }}
+        run: |
+          if [ -f pnpm-lock.yaml ]; then
+            echo "pm=pnpm" >> $GITHUB_OUTPUT
+          elif [ -f yarn.lock ]; then
+            echo "pm=yarn" >> $GITHUB_OUTPUT
+          else
+            echo "pm=npm" >> $GITHUB_OUTPUT
+          fi
 
-      - run: npm ci
-      - run: npm run build
+      # 의존성 설치
+      - name: Install deps
+        working-directory: ${{ env.WORKDIR }}
+        run: |
+          if [ "${{ steps.pm.outputs.pm }}" = "pnpm" ]; then
+            corepack enable
+            pnpm i --frozen-lockfile || pnpm i
+          elif [ "${{ steps.pm.outputs.pm }}" = "yarn" ]; then
+            corepack enable
+            yarn install --frozen-lockfile || yarn install
+          else
+            if [ -f package-lock.json ]; then npm ci; else npm install; fi
+          fi
 
-      # SPA 새로고침 404 방지 (React Router 등일 때)
-      - run: cp dist/index.html dist/404.html || true
+      # 빌드
+      - name: Build
+        working-directory: ${{ env.WORKDIR }}
+        run: |
+          if [ "${{ steps.pm.outputs.pm }}" = "pnpm" ]; then pnpm build;
+          elif [ "${{ steps.pm.outputs.pm }}" = "yarn" ]; then yarn build;
+          else npm run build; fi
 
-      # GitHub Pages용 아티팩트 업로드
+      # SPA 새로고침 404 방지
+      - name: Copy 404 for SPA
+        working-directory: ${{ env.WORKDIR }}
+        run: |
+          mkdir -p dist
+          cp dist/index.html dist/404.html || true
+          ls -la dist
+
+      # Pages 아티팩트 업로드
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: ./dist
+          path: ${{ env.WORKDIR }}/dist
 
   deploy:
     needs: build
