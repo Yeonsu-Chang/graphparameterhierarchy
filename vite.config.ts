@@ -5,6 +5,7 @@ import { fileURLToPath, URL } from 'node:url'
 
 export default defineConfig({
   plugins: [react()],
+  base: '/',
   css: {
     devSourcemap: false, // 개발 소스맵 off → 빠름
   },
